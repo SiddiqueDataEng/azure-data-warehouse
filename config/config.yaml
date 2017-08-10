@@ -1,0 +1,82 @@
+# Azure Data Warehouse Configuration
+
+azure:
+  subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+  resource_group: "rg-enterprise-dw"
+  location: "eastus"
+  
+synapse:
+  workspace_name: "synapse-enterprise-dw"
+  sql_pool_name: "EnterpriseDW"
+  admin_user: "sqladmin"
+  admin_password: "${SYNAPSE_ADMIN_PASSWORD}"
+  dw_units: "DW100c"
+  
+data_factory:
+  name: "adf-enterprise-dw"
+  pipelines:
+    - name: "PL_FullLoad_OnPremToAzureDW"
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      enabled: true
+    - name: "PL_IncrementalLoad"
+      schedule: "0 */4 * * *"  # Every 4 hours
+      enabled: true
+
+storage:
+  account_name: "stgenterprisedw"
+  container_staging: "staging"
+  container_archive: "archive"
+  
+database:
+  schemas:
+    - staging
+    - dwh
+    - etl
+  
+  tables:
+    staging:
+      - Customers
+      - Products
+      - SalesOrders
+      - OrderDetails
+    
+    dwh:
+      - DimDate
+      - DimCustomer
+      - DimProduct
+      - FactSales
+      - FactDailySales
+
+etl:
+  batch_size: 10000
+  max_retries: 3
+  retry_delay_seconds: 60
+  timeout_minutes: 120
+  
+  data_quality:
+    enabled: true
+    checks:
+      - type: "not_null"
+        columns: ["CustomerID", "ProductID", "OrderID"]
+      - type: "unique"
+        columns: ["OrderID"]
+      - type: "range"
+        column: "Amount"
+        min: 0
+        max: 1000000
+
+monitoring:
+  enabled: true
+  alert_email: "data-team@company.com"
+  metrics:
+    - pipeline_success_rate
+    - data_quality_score
+    - processing_time
+    - record_count
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/etl.log"
+  max_bytes: 10485760  # 10MB
+  backup_count: 5

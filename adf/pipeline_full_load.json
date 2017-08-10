@@ -1,0 +1,239 @@
+{
+  "name": "PL_FullLoad_OnPremToAzureDW",
+  "properties": {
+    "description": "Full load pipeline from on-premises SQL Server to Azure SQL DW",
+    "activities": [
+      {
+        "name": "Copy_Customers",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "7.00:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlSource",
+            "sqlReaderQuery": "SELECT * FROM dbo.Customers WHERE ModifiedDate >= '@{pipeline().parameters.LastLoadDate}'"
+          },
+          "sink": {
+            "type": "SqlDWSink",
+            "preCopyScript": "TRUNCATE TABLE staging.Customers",
+            "writeBatchSize": 10000
+          },
+          "enableStaging": true,
+          "stagingSettings": {
+            "linkedServiceName": {
+              "referenceName": "AzureBlobStorage",
+              "type": "LinkedServiceReference"
+            },
+            "path": "staging"
+          }
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_OnPrem_Customers",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_AzureDW_Staging_Customers",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "Copy_Products",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "7.00:00:00",
+          "retry": 2
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlSource",
+            "sqlReaderQuery": "SELECT * FROM dbo.Products WHERE ModifiedDate >= '@{pipeline().parameters.LastLoadDate}'"
+          },
+          "sink": {
+            "type": "SqlDWSink",
+            "preCopyScript": "TRUNCATE TABLE staging.Products",
+            "writeBatchSize": 10000
+          },
+          "enableStaging": true,
+          "stagingSettings": {
+            "linkedServiceName": {
+              "referenceName": "AzureBlobStorage",
+              "type": "LinkedServiceReference"
+            },
+            "path": "staging"
+          }
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_OnPrem_Products",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_AzureDW_Staging_Products",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "Copy_SalesOrders",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "7.00:00:00",
+          "retry": 2
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlSource",
+            "sqlReaderQuery": "SELECT * FROM dbo.SalesOrders WHERE OrderDate >= '@{pipeline().parameters.LastLoadDate}'"
+          },
+          "sink": {
+            "type": "SqlDWSink",
+            "preCopyScript": "TRUNCATE TABLE staging.SalesOrders",
+            "writeBatchSize": 10000
+          },
+          "enableStaging": true,
+          "stagingSettings": {
+            "linkedServiceName": {
+              "referenceName": "AzureBlobStorage",
+              "type": "LinkedServiceReference"
+            },
+            "path": "staging"
+          }
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_OnPrem_SalesOrders",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_AzureDW_Staging_SalesOrders",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "Copy_OrderDetails",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "Copy_SalesOrders",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "7.00:00:00",
+          "retry": 2
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlSource",
+            "sqlReaderQuery": "SELECT od.* FROM dbo.OrderDetails od INNER JOIN dbo.SalesOrders so ON od.OrderID = so.OrderID WHERE so.OrderDate >= '@{pipeline().parameters.LastLoadDate}'"
+          },
+          "sink": {
+            "type": "SqlDWSink",
+            "preCopyScript": "TRUNCATE TABLE staging.OrderDetails",
+            "writeBatchSize": 10000
+          },
+          "enableStaging": true,
+          "stagingSettings": {
+            "linkedServiceName": {
+              "referenceName": "AzureBlobStorage",
+              "type": "LinkedServiceReference"
+            },
+            "path": "staging"
+          }
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_OnPrem_OrderDetails",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_AzureDW_Staging_OrderDetails",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "SP_LoadDimCustomer",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "Copy_Customers",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "storedProcedureName": "dwh.LoadDimCustomer"
+        },
+        "linkedServiceName": {
+          "referenceName": "AzureSQLDW",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "SP_LoadDimProduct",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "Copy_Products",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "storedProcedureName": "dwh.LoadDimProduct"
+        },
+        "linkedServiceName": {
+          "referenceName": "AzureSQLDW",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "SP_LoadFactSales",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "SP_LoadDimCustomer",
+            "dependencyConditions": ["Succeeded"]
+          },
+          {
+            "activity": "SP_LoadDimProduct",
+            "dependencyConditions": ["Succeeded"]
+          },
+          {
+            "activity": "Copy_OrderDetails",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "storedProcedureName": "dwh.LoadFactSales"
+        },
+        "linkedServiceName": {
+          "referenceName": "AzureSQLDW",
+          "type": "LinkedServiceReference"
+        }
+      }
+    ],
+    "parameters": {
+      "LastLoadDate": {
+        "type": "String",
+        "defaultValue": "1900-01-01"
+      }
+    }
+  }
+}
